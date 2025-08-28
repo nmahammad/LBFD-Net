@@ -1,0 +1,21 @@
+[project]
+name = "LBFD-Net"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "mahammad", email = "mahammad.nabizade@gmail.com"},
+]
+dependencies = ["numpy>=2.2.6", "torch>=2.8.0", "torchvision>=0.23.0", "torchinfo>=1.8.0", "pillow>=11.3.0", "scikit-learn>=1.7.1"]
+requires-python = "==3.10.*"
+readme = "README.md"
+license = {text = "MIT"}
+
+
+[tool.pdm]
+distribution = false
+
+[dependency-groups]
+dev = [
+    "mypy>=1.17.1",
+    "ruff>=0.12.10",
+]
