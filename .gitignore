@@ -6,3 +6,5 @@ __pycache__/
 .pdm-python
 .vscode/
 .DS_Store
+.venv/
+.env/
