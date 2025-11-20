@@ -25,10 +25,11 @@ DEFAULT_IMAGE_SIZE: Final[tuple[int, int]] = (224, 224)
 BASE_TRANSFORMS = transforms.Compose([
     transforms.Resize(DEFAULT_IMAGE_SIZE),
     transforms.ToTensor(),
-    # TODO: Calculate actual mean/std from your fall detection dataset
-    # These are placeholder values - replace with your dataset statistics
-    transforms.Normalize(mean=[0.456, 0.478, 0.432], std=[0.234, 0.251, 0.289])
+    transforms.Normalize(mean=[0.5288, 0.5161, 0.4727], std=[0.2366, 0.2398, 0.2436])
+    
 ])
+
+
 
 # Augmentation transforms - only applied when use_augmentation=True
 AUGMENTATION_TRANSFORMS = transforms.Compose([
