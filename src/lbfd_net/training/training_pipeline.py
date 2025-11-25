@@ -192,11 +192,4 @@ class TrainingPipeline:
                 self.model.load_state_dict(best_model_state)
                 print("Restored best model weights into memory.")
 
-            # ====================================================
-            #              SAVE FINAL MODEL (AFTER RESTORE)
-            # ====================================================
-            final_model_path = experiment_directory / "final_model.pth"
-            torch.save(self.model.state_dict(), final_model_path)
-            mlflow.log_artifact(str(final_model_path))
-
-            print(f"Final model saved to: {final_model_path}")
+            print(f"Best model saved to: {best_model_path}")
