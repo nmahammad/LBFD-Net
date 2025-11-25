@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch
-from .residual_block import ResidualBlock
+from residual_block import ResidualBlock
 
 class LightWeightBinaryFallDetectionNetwork(nn.Module):
     def __init__(self):
