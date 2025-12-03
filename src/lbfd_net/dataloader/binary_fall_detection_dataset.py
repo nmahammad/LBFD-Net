@@ -1,217 +1,154 @@
 from pathlib import Path
-from typing import Final, Literal
 
 import torch
 from PIL import Image, ImageFile
 from torch import Tensor
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
+from torch.utils.data import Dataset, DataLoader
 
-# Handle slightly corrupted images
+from lbfd_net.helpers.constants import CLASS_LABELS, NORMALIZATION_TYPE, SUBSET_NAME
+from lbfd_net.helpers.create_transforms import create_transforms
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-
-# Type definitions
-SUBSET_NAMES = Literal["train", "validation", "test"]
-
-# Constants
-CLASS_LABELS: Final[dict[str, int]] = {"no_fall": 0, "fall": 1}
-SUPPORTED_IMAGE_EXTENSIONS: Final[tuple[str]] = (".png",)
-DEFAULT_BATCH_SIZE: Final[int] = 16
-DEFAULT_NUMBER_OF_WORKERS: Final[int] = 2
-DEFAULT_PREFETCH_FACTOR: Final[int] = 2
-DEFAULT_IMAGE_SIZE: Final[tuple[int, int]] = (224, 224)
-
-# Base transforms - always applied
-BASE_TRANSFORMS = transforms.Compose([
-    transforms.Resize(DEFAULT_IMAGE_SIZE),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5288, 0.5161, 0.4727], std=[0.2366, 0.2398, 0.2436])
-    
-])
-
-
-
-# Augmentation transforms - only applied when use_augmentation=True
-AUGMENTATION_TRANSFORMS = transforms.Compose([
-    transforms.RandomRotation(degrees=15),
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-    transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
-])
-
-def create_transforms(use_augmentation: bool = False) -> transforms.Compose:
-    """Create transforms based on whether augmentation is enabled.
-    
-    Args:
-        use_augmentation: If True, applies data augmentation. If False, only basic transforms.
-        
-    Returns:
-        Composed transforms
-    """
-    if use_augmentation:
-        return transforms.Compose([
-            AUGMENTATION_TRANSFORMS,
-            BASE_TRANSFORMS,
-        ])
-    else:
-        return BASE_TRANSFORMS
 
 
 class BinaryFallDataset(Dataset):
-    """Dataset for binary fall detection with lazy loading.
-    
-    This dataset implements lazy loading - images are loaded from disk only when
-    accessed through __getitem__, saving memory for large datasets.
-    
-    Expected folder structure:
-    root/
-    ├── train/
-    │   ├── fall/
-    │   └── no_fall/
-    ├── validation/
-    │   ├── fall/
-    │   └── no_fall/
-    └── test/
-        ├── fall/
-        └── no_fall/
+    """
+    Dataset class for binary fall detection using lazy PNG loading.
+
+    Expected directory structure:
+
+        root/
+        ├── train/
+        │     ├── fall/
+        │     └── no_fall/
+        ├── validation/
+        │     ├── fall/
+        │     └── no_fall/
+        └── test/
+              ├── fall/
+              └── no_fall/
     """
 
     def __init__(
         self,
         root_directory_path: Path | str,
-        subset: SUBSET_NAMES,
+        subset: SUBSET_NAME,
         use_augmentation: bool = False,
-        custom_transforms: transforms.Compose | None = None,
-    ) -> None:
-        """Initialize the dataset.
-        
-        Args:
-            root_directory_path: Path to dataset root directory
-            subset: Which subset to use ("train", "validation", or "test")
-            use_augmentation: If True, applies data augmentation. If False, only basic transforms.
-            custom_transforms: Optional custom transforms. If provided, overrides augmentation setting.
-        """
+        normalization_type: NORMALIZATION_TYPE = "rgb",
+        image_size: tuple[int, int] | None = None,
+    ):
         self.root_directory_path = Path(root_directory_path)
         self.subset = subset
         self.use_augmentation = use_augmentation
-        
-        # Set transforms based on parameters
-        if custom_transforms is not None:
-            self.image_transforms = custom_transforms
-        else:
-            self.image_transforms = create_transforms(use_augmentation)
-        
-        # Will be populated by load_dataset() - lazy loading approach
+        self.normalization_type = normalization_type
+
+        # Obtain transforms from helper module
+        self.convert_to_grayscale, self.image_transforms = create_transforms(
+            use_augmentation=self.use_augmentation,
+            normalization_type=self.normalization_type,
+            image_size=image_size
+        )
+
+        # These lists are populated on load, lazy loading
         self.image_file_paths: list[Path] = []
         self.class_labels: list[int] = []
+
         self.is_data_loaded = False
 
+
     def load_dataset(self) -> None:
-        """Load image file paths and labels from the dataset directory.
-        
-        This method scans the directory structure but doesn't load actual images
-        into memory - that happens lazily in __getitem__.
-        """
-        if self.is_data_loaded:
-            return
+        """Scan the directory and collect PNG paths + labels."""
+
+        if self.is_data_loaded == True:
+            return None
 
         subset_directory = self.root_directory_path / self.subset
-        self._validate_directory_exists(subset_directory, "Subset")
 
-        # Load paths and labels for each class
+        if not subset_directory.exists():
+            raise FileNotFoundError(f"Subset directory not found: {subset_directory}")
+
         for class_name, class_label in CLASS_LABELS.items():
             class_directory = subset_directory / class_name
-            self._validate_directory_exists(class_directory, f"Class '{class_name}'")
-            
-            # Only look for PNG files for quality
-            png_image_files = list(class_directory.rglob("*.png"))
-            self.image_file_paths.extend(png_image_files)
-            self.class_labels.extend([class_label] * len(png_image_files))
+
+            if not class_directory.exists():
+                raise FileNotFoundError(
+                    f"Class directory '{class_name}' not found at: {class_directory}"
+                )
+
+            png_files = list(class_directory.rglob("*.png"))
+            self.image_file_paths.extend(png_files)
+            self.class_labels.extend([class_label] * len(png_files))
 
         if not self.image_file_paths:
-            raise ValueError(f"No PNG images found in {subset_directory}")
+            raise ValueError(f"No PNG images found in subset '{self.subset}'")
 
-        # Sort for reproducible results
         self._sort_files_and_labels()
         self.is_data_loaded = True
 
-    def _validate_directory_exists(self, directory_path: Path, description: str) -> None:
-        """Check if directory exists and raise informative error if not.
-        
-        Args:
-            directory_path: Path to check
-            description: Human-readable description for error message
-        """
-        if not directory_path.exists():
-            raise FileNotFoundError(f"{description} directory not found: {directory_path}")
 
     def _sort_files_and_labels(self) -> None:
-        """Sort file paths and labels together for reproducible ordering.
-        
-        This ensures that the dataset order is consistent across runs,
-        which is important for reproducible training.
-        """
-        sorted_indices = sorted(
-            range(len(self.image_file_paths)),
-            key=lambda current_index: str(self.image_file_paths[current_index]).lower()
-        )
-        self.image_file_paths = [self.image_file_paths[current_index] for current_index in sorted_indices]
-        self.class_labels = [self.class_labels[current_index] for current_index in sorted_indices]
+        """Sort file paths and labels together for reproducibility."""
 
-    def _ensure_data_loaded(self) -> None:
-        """Ensure dataset is loaded before accessing data."""
+        paired_images_and_labels = list(zip(self.image_file_paths, self.class_labels))
+
+        paired_images_and_labels.sort(key=lambda pair: str(pair[0]).lower())
+
+        sorted_images = []
+        sorted_labels = []
+
+        for image, label in paired_images_and_labels:
+            sorted_images.append(image)
+            sorted_labels.append(label)
+
+        self.image_file_paths = sorted_images
+        self.class_labels = sorted_labels
+
+
+    def _ensure_loaded(self) -> None:
         if not self.is_data_loaded:
             raise RuntimeError("Dataset not loaded. Call load_dataset() first.")
 
+
     def __len__(self) -> int:
-        """Return number of images in dataset."""
-        self._ensure_data_loaded()
-        return len(self.image_file_paths)
+        self._ensure_loaded()
+        dataset_length = len(self.image_file_paths)
+        return dataset_length
 
-    def __getitem__(self, dataset_index: int) -> tuple[Tensor, Tensor]:
-        """Load and transform a single image on demand (lazy loading).
-        
-        This is where the actual lazy loading happens - images are only loaded
-        from disk when requested, saving memory.
-        
-        Args:
-            dataset_index: Index of the sample to retrieve
-            
-        Returns:
-            Tuple of (image_tensor, label_tensor)
-        """
-        self._ensure_data_loaded()
 
-        image_file_path = self.image_file_paths[dataset_index]
-        class_label = self.class_labels[dataset_index]
+    def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
+        """Load and transform a single image."""
 
-        # Load image and apply transforms (this is the lazy loading part)
-        with Image.open(image_file_path) as loaded_image:
-            # Convert to RGB to ensure consistent 3-channel format
-            rgb_image = loaded_image.convert("RGB")
-            transformed_image_tensor = self.image_transforms(rgb_image)
+        self._ensure_loaded()
 
-        # Convert label to tensor for PyTorch
-        label_tensor = torch.tensor(class_label, dtype=torch.long)
-        
-        return transformed_image_tensor, label_tensor
+        image_path = self.image_file_paths[index]
+        label_value = self.class_labels[index]
+
+        with Image.open(image_path) as image:
+
+            if self.convert_to_grayscale:
+                image = image.convert("L")
+            else:
+                image = image.convert("RGB")
+
+            tensor_image = self.image_transforms(image)
+
+        tensor_label = torch.tensor(label_value, dtype=torch.long)
+
+        return tensor_image, tensor_label
+
 
     def get_data_loader(
         self,
-        batch_size: int = DEFAULT_BATCH_SIZE,
-        shuffle_data: bool = True,
-        number_of_workers: int = DEFAULT_NUMBER_OF_WORKERS,
+        batch_size,
+        shuffle_data,
+        number_of_workers: int = 2,
+        prefetch_factor: int = 2,
+        pin_memory: bool | None = None,
     ) -> DataLoader:
-        """Create a DataLoader for this dataset.
-        
-        Args:
-            batch_size: Number of samples per batch
-            shuffle_data: Whether to shuffle the dataset
-            number_of_workers: Number of worker processes for data loading
-            
-        Returns:
-            Configured DataLoader instance
-        """
+
+        if pin_memory is None:
+            pin_memory = torch.cuda.is_available()
+
         if not self.is_data_loaded:
             self.load_dataset()
 
@@ -220,31 +157,39 @@ class BinaryFallDataset(Dataset):
             batch_size=batch_size,
             shuffle=shuffle_data,
             num_workers=number_of_workers,
-            pin_memory=torch.cuda.is_available(),  # Faster GPU transfer if available
-            prefetch_factor=DEFAULT_PREFETCH_FACTOR,  # Prefetch batches for speed
+            pin_memory=pin_memory,
+            prefetch_factor=prefetch_factor
         )
 
+
     def get_class_distribution(self) -> dict[str, int]:
-        """Get the distribution of classes in the dataset.
-        
-        Returns:
-            Dictionary mapping class names to counts
-        """
-        self._ensure_data_loaded()
-        
-        class_counts = {}
+        """Return number of fall vs no_fall samples."""
+        self._ensure_loaded()
+
+        class_counts: dict[str, int] = {}
         for class_name, class_label in CLASS_LABELS.items():
-            class_count = sum(1 for label in self.class_labels if label == class_label)
-            class_counts[class_name] = class_count
-        
+            count = 0
+            for label in self.class_labels:
+                if label == class_label:
+                    count += 1
+            class_counts[class_name] = count
+
         return class_counts
 
+
     def __repr__(self) -> str:
-        """String representation of the dataset."""
+
+        if self.is_data_loaded:
+            size = len(self.image_file_paths)
+        else:
+            size = "Dataset Not loaded"
+
         return (
             f"BinaryFallDataset("
             f"subset='{self.subset}', "
             f"augmentation={self.use_augmentation}, "
+            f"normalization_type='{self.normalization_type}', "
+            f"convert_to_grayscale={self.convert_to_grayscale}, "
             f"loaded={self.is_data_loaded}, "
-            f"size={len(self) if self.is_data_loaded else 'unknown'})"
+            f"size={size})"
         )

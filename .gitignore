@@ -10,5 +10,10 @@ __pycache__/
 .env/
 dataset/
 *.egg-info/
-mlruns/
+mlruns
 experiments/
+notes.txt
+
+video_results.json
+video_testing
+model_weights
