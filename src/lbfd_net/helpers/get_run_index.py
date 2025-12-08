@@ -1,5 +1,4 @@
 import mlflow
-from pathlib import Path
 
 def get_next_run_index(experiment_name: str) -> int:
     """

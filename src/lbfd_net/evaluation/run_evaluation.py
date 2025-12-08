@@ -1,14 +1,14 @@
 from lbfd_net.evaluation.evaluation_pipeline import EvaluationPipeline
-from lbfd_net.helpers.constants import SEED
+from lbfd_net.helpers.constants import SEED_VALUE
 from lbfd_net.helpers.set_random_seed import set_random_seed
 
-MODEL_NAME = "alexnet"
-TEST_BATCH_SIZE = 16
-RUN_INDEX = 1
+MODEL_NAME = "lbfdnet"  # Set to alexnet, lenet, lbfdnet
+TEST_BATCH_SIZE = 16 
+RUN_INDEX = 1  # Set to None to use latest run
 
 def main():
 
-    set_random_seed(SEED)
+    set_random_seed(SEED_VALUE)
     
     evaluation_pipeline = EvaluationPipeline(
         model_name=MODEL_NAME,

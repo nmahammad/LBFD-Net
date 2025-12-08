@@ -5,7 +5,7 @@ from PIL import Image, ImageFile
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
 
-from lbfd_net.helpers.constants import CLASS_LABELS, NORMALIZATION_TYPE, SUBSET_NAME
+from lbfd_net.helpers.constants import CLASS_LABELS, NormalizationType, SubsetName
 from lbfd_net.helpers.create_transforms import create_transforms
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -32,9 +32,9 @@ class BinaryFallDataset(Dataset):
     def __init__(
         self,
         root_directory_path: Path | str,
-        subset: SUBSET_NAME,
+        subset: SubsetName,
         use_augmentation: bool = False,
-        normalization_type: NORMALIZATION_TYPE = "rgb",
+        normalization_type: NormalizationType = "rgb",
         image_size: tuple[int, int] | None = None,
     ):
         self.root_directory_path = Path(root_directory_path)
